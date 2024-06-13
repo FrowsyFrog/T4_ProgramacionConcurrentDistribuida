@@ -1,14 +1,25 @@
 package main
 
 import (
+	"bufio"
 	"encoding/csv"
 	"fmt"
+	"net"
 	"net/http"
-	"sort"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
-	"time"
 )
+
+const (
+	port = 8000
+)
+
+var hostaddr string
+var lr LinearRegression
+
+var modelIsTrained bool = false
 
 type LinearRegression struct {
 	slope     float64
@@ -56,6 +67,8 @@ func (lr *LinearRegression) Fit(X, y []float64) {
 
 	lr.slope = (n*sumXY - sumX*sumY) / (n*sumXSquare - sumX*sumX)
 	lr.intercept = (sumY - lr.slope*sumX) / n
+
+	modelIsTrained = true
 }
 
 func (lr *LinearRegression) Predict(X []float64) []float64 {
@@ -116,60 +129,111 @@ func ReadDataset(url string) ([]float64, []float64) {
 	return x, y
 }
 
-func InitialTest(lr LinearRegression, X, y []float64) {
-	start := time.Now()
+func descubrirIP() string {
+	//interafz de red
+	ifaces, _ := net.Interfaces()
+	for _, i := range ifaces { //Interfaz de red
+		if strings.HasPrefix(i.Name, "Ethernet") {
+			//solo aquellos q son Ethernet
+			addrs, _ := i.Addrs()
+			for _, addr := range addrs {
+				switch t := addr.(type) {
+				case *net.IPNet:
+					if t.IP.To4() != nil {
+						return t.IP.To4().String() //retornamos la IP Ethernet V4
+					}
+				}
+			}
+		}
+	}
+	return "127.0.0.1"
+}
+
+func initializeTraining() {
+	X, y := ReadDataset("https://raw.githubusercontent.com/FrowsyFrog/T3_ProgramacionConcurrenteDistribuida/main/train.csv")
 	lr.Fit(X, y)
-	elapsed := time.Since(start)
-
-	fmt.Printf("Training time: %v\n", elapsed)
-	fmt.Printf("Slope: %f\n", lr.slope)
-	fmt.Printf("Intercept: %f\n", lr.intercept)
-
-	newX := []float64{100}
-	predictions := lr.Predict(newX)
-
-	fmt.Println("Input: ", newX)
-	fmt.Println("Predictions:", predictions)
-}
-
-func PerformanceTest(n int, lr LinearRegression, X, y []float64) []time.Duration {
-	durations := make([]time.Duration, n)
-	for i := 0; i < n; i++ {
-		start := time.Now()
-		lr.Fit(X, y)
-		durations[i] = time.Since(start)
-	}
-	return durations
-}
-
-func Duration2Int(durations []time.Duration) []int {
-	arr := make([]int, len(durations))
-	for i, d := range durations {
-		arr[i] = int(d)
-	}
-	return arr
-}
-
-func Int2Duration(ints []int) []time.Duration {
-	arr := make([]time.Duration, len(ints))
-	for i, val := range ints {
-		arr[i] = time.Duration(val)
-	}
-	return arr
-}
-
-func getTop(n int, durations []time.Duration) []time.Duration {
-	tempD2I := Duration2Int(durations)
-	sort.Ints(tempD2I)
-	return Int2Duration(tempD2I[:n])
 }
 
 func main() {
-	X, y := ReadDataset("https://raw.githubusercontent.com/FrowsyFrog/T3_ProgramacionConcurrenteDistribuida/main/train.csv")
-	var lr LinearRegression
+	hostaddr = descubrirIP()
+	hostaddr = strings.TrimSpace(hostaddr)
+	fmt.Println("Mi IP: ", hostaddr)
 
-	// InitialTest(lr, X, y)
-	testTimes := PerformanceTest(1000, lr, X, y)
-	topN := 10
-	fmt.Println("Mejores", topN, "tiempos: ", getTop(topN, testTimes))
+	go registerServer()
+
+	//modo cliente
+	//menú para conexión
+	br := bufio.NewReader(os.Stdin)
+	fmt.Print("Ingrese la IP de nodo remoto: ")
+	remoteIP, _ := br.ReadString('\n')
+	remoteIP = strings.TrimSpace(remoteIP)
+
+	if remoteIP != "" {
+		registerClient(remoteIP) //solicitar el enrrolamiento del nuevo nodo
+	}
+}
+
+func registerServer() {
+	go initializeTraining()
+	hostname := fmt.Sprintf("%s:%d", hostaddr, port)
+	ls, _ := net.Listen("tcp", hostname)
+	defer ls.Close()
+	//manejar las conexiones entrantes
+	for {
+		conn, _ := ls.Accept()
+		go handleMessage(conn) //para soportar un alto volumen de conexiones???
+	}
+}
+
+func handleMessage(conn net.Conn) {
+	defer conn.Close()
+
+	for {
+		message, err := bufio.NewReader(conn).ReadString('\n')
+		if err != nil {
+			fmt.Println("Error al leer el mensaje del cliente:", err)
+			continue
+		}
+		message = strings.TrimSpace(message)
+
+		num, err := strconv.ParseFloat(message, 64)
+		if err != nil {
+			fmt.Fprintf(conn, "%s\n", "Se debe ingresar un número")
+			continue
+		}
+
+		if modelIsTrained {
+			results := lr.Predict([]float64{num})
+			strResult := strconv.FormatFloat(results[0], 'f', 2, 64)
+			fmt.Fprintf(conn, "%s\n", strResult)
+			continue
+		}
+
+		fmt.Fprintf(conn, "%s\n", "El modelo no ha terminado de entrenar aún. Espera un momento antes de enviar un mensaje")
+	}
+}
+
+func registerClient(remoteIP string) {
+	remoteHost := fmt.Sprintf("%s:%d", remoteIP, port)
+	println(remoteHost)
+	//conectarme al nodo remoto
+	conn, err := net.Dial("tcp", remoteHost)
+	if err != nil {
+		fmt.Println("Error al conectar al servidor:", err)
+		return
+	}
+	defer conn.Close()
+
+	// Enviar mensajes
+	for {
+		fmt.Print("Ingrese temperatura °C para enviar al servidor: ")
+		br := bufio.NewReader(os.Stdin)
+		message, _ := br.ReadString('\n')
+
+		fmt.Fprintf(conn, "%s\n", message) //envío del mensaje
+		//recibir resultado
+		br = bufio.NewReader(conn)
+		result, _ := br.ReadString('\n') //la bitácora de IPs
+		fmt.Println("Respuesta temperatura en °F: ", result)
+	}
 }
