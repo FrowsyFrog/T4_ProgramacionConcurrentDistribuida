@@ -150,7 +150,7 @@ func descubrirIP() string {
 }
 
 func initializeTraining() {
-	X, y := ReadDataset("https://raw.githubusercontent.com/FrowsyFrog/T3_ProgramacionConcurrenteDistribuida/main/train.csv")
+	X, y := ReadDataset("https://raw.githubusercontent.com/FrowsyFrog/T4_ProgramacionConcurrentDistribuida/main/train.csv")
 	lr.Fit(X, y)
 }
 
