@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -77,7 +78,7 @@ func (lr *LinearRegression) Predict(X []float64) ([]float64, error) {
 	if lr.isTrained {
 		predictions := make([]float64, len(X))
 		for i := range X {
-			predictions[i] = lr.slope*X[i] + lr.intercept
+			predictions[i] = math.Round(lr.slope*X[i]+lr.intercept*math.Pow(10, 6)) / math.Pow(10, 6)
 		}
 		return predictions, nil
 	}
@@ -137,12 +138,13 @@ func ReadDataset(url string) ([]float64, []float64) {
 func initializeTraining() {
 	X, y := ReadDataset("https://raw.githubusercontent.com/FrowsyFrog/T4_ProgramacionConcurrentDistribuida/main/train.csv")
 	lr.Fit(X, y)
+	fmt.Println("¡Entrenamiento completado!")
 }
 
 func main() {
 	hostAddr = discoverIP()
 	hostAddr = strings.TrimSpace(hostAddr)
-	fmt.Println("Ejecutando con la IP:", hostAddr)
+	fmt.Printf("Ejecutando en la dirección %s:%d\n", hostAddr, port)
 
 	registerServer()
 }
