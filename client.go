@@ -41,7 +41,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	go handle(conn)
+	handle(conn)
 }
 
 func handle(conn net.Conn) {
@@ -53,7 +53,7 @@ func handle(conn net.Conn) {
 		send(conn, X)
 
 		pred := getPredictions(conn)
-		fmt.Println("Predicciones:", pred)
+		fmt.Println("Predicciones: ", pred)
 	}
 }
 

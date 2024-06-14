@@ -144,7 +144,7 @@ func main() {
 	hostAddr = strings.TrimSpace(hostAddr)
 	fmt.Println("Ejecutando con la IP:", hostAddr)
 
-	go registerServer()
+	registerServer()
 }
 
 func discoverIP() string {
@@ -182,10 +182,25 @@ func handleMessage(conn net.Conn) {
 	defer conn.Close()
 
 	for {
-		msg, _ := bufio.NewReader(conn).ReadString('\n')
+		msg, err := bufio.NewReader(conn).ReadString('\n')
+		if err != nil {
+			return
+		}
 		msg = strings.TrimSpace(msg)
 		var X []float64
 		json.Unmarshal([]byte(msg), &X)
 		fmt.Println("Arreglo recibido:", X)
+
+		result, err := lr.Predict(X)
+		if err != nil {
+			fmt.Fprintf(conn, "%s\n", err)
+			continue
+		}
+		send(conn, result)
 	}
+}
+
+func send(conn net.Conn, arr []float64) {
+	bytesMsg, _ := json.Marshal(arr)
+	fmt.Fprintln(conn, string(bytesMsg))
 }
